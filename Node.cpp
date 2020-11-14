@@ -1,4 +1,5 @@
 #include "Functions.cpp"
+#include<string>
 class Node
 {
 	public:
@@ -107,8 +108,46 @@ class Node
 			ll key=stoll(keyval.substr(0,keyval.find(':')));
 			string value=keyval.substr(keyval.find(':')+1);
 			keyStore[key]=value;
-			cout<<"this is value put"<<endl;
-			cout<<keyStore[key]<<endl;
+			// cout<<"this is value put"<<endl;
+			// cout<<keyStore[key]<<endl;
+		}
+		else if(message.substr(0,3)=="get")
+		{
+			string key=message.substr(4);
+			ll keyHash=stoll(key);
+			string value;
+			if(keyStore.find(keyHash)!=keyStore.end())
+				value=keyStore[keyHash];
+			else
+				value="";
+			char val[BUF_MAX+1];
+			strcpy(val,value.c_str());
+			socklen_t client_size=sizeof(client);
+			sendto(sockid,val,strlen(val),0,(struct sockaddr*) &client,client_size);
+			// cout<<"this is value put"<<endl;
+			// cout<<keyStore[key]<<endl;
+		}
+		else if(message.substr(0,2)=="gk")
+		{
+			string key=message.substr(3);
+			ll keyHash=stoll(key);
+			vector<ll> to_remove;
+			for(auto i: keyStore)
+			{
+				if(i.first<=keyHash || (i.first>keyHash && i.first>currentNode.id))
+				{
+					struct sockaddr_in server_addr;
+					socklen_t len = sizeof(server_addr);
+				    int sock=establish_connection(server_addr,predecessor);
+				    char keyval[100];
+					strcpy(keyval,("put:"+to_string(i.first)+":"+i.second).c_str());
+					sendto(sock,keyval, strlen(keyval), 0, (struct sockaddr*)&server_addr, len);
+				    close(sock);
+				    to_remove.push_back(i.first);
+				}
+			}
+			for(auto i: to_remove)
+				keyStore.erase(i);
 		}
 		else if(message.substr(0,5)=="finds")
 		{
@@ -242,8 +281,23 @@ class Node
 		stabiliser.detach();
 	    thread listener(&Node::startListening,this);
 	    listener.detach();
+	    ask_get_keys(successor);
  	}
-
+ 	void ask_get_keys(nodeInfo node)
+ 	{
+ 		struct sockaddr_in server;
+	    socklen_t len = sizeof(server);
+	    int new_sock = establish_connection(server,node);
+	    char change_query[BUF_MAX+1];
+	    strcpy(change_query,(string("gk:")+to_string(currentNode.id)).c_str());
+	    //cout<<"Sending: "<<change_query<<endl;
+	    if (sendto(new_sock, change_query, strlen(change_query), 0, (struct sockaddr*) &server, len) == -1)
+	    {
+	        perror("error");
+	        exit(-1);
+	    }
+	    close(new_sock);
+ 	}
  	void stabilise()
  	{
  		while(1)
@@ -350,7 +404,7 @@ class Node
 		    socklen_t len = sizeof(server_addr);
 		    if(preceding_node.ip=="") // couldn't find preceding node
 		    	preceding_node=successor;
-		    int sock=sock=establish_connection(server_addr,preceding_node);
+		    int sock=establish_connection(server_addr,preceding_node);
 		    char node_id[46];
 		    strcpy(node_id,("finds:"+to_string(targetnode_id)).c_str());
 		    sendto(sock,node_id, strlen(node_id), 0, (struct sockaddr*)&server_addr, len);
@@ -403,68 +457,52 @@ class Node
 		}
 	}
 void put(string key, string value)
+{
+	if (key == "" || value == "")
 	{
-    	if (key == "" || value == "")
-    	{
-       		 cout << "Key or value field empty\n";
-        	return;
-    	}
-
-    	else
-    	{
-
+   		 cout << "Invalid key/ value"<<endl;
+    	return;
+	}
+	else
+	{
         ll keyHash = getHashId(key);
         cout << "Key is " << key << " and hash : " << keyHash << endl;
-
-        
         nodeInfo node2 = find_successor(keyHash);
-
-       
-
-        string ip = node2.ip;
-        int port = node2.port;
-
-        struct sockaddr_in connect_server;
-        socklen_t l = sizeof(connect_server);
-
-        connect_server.sin_family = AF_INET;
-        connect_server.sin_addr.s_addr = inet_addr(ip.c_str());
-        connect_server.sin_port = htons(port);
-
-
-        int sock = socket(AF_INET, SOCK_DGRAM, 0);
-
-        if (sock < 0)
-        {
-            perror("error");
-            exit(-1);
-        }
-
-        
-
-        string ipAndPort = "put ";
-        int i = 0;
-        string hash_string = to_string(keyHash);
-        for (i = 0; i < hash_string.size(); i++)
-        {
-            ipAndPort += hash_string[i];
-        }
-
-        ipAndPort += ':';
-        for (i = 0; i < value.size(); i++)
-        {
-            ipAndPort += value[i];
-        }
-
-        char key_value_array[100];
-        strcpy(key_value_array, ipAndPort.c_str());
-
-        sendto(sock, key_value_array, strlen(key_value_array), 0, (struct sockaddr *)&connect_server, l);
-
+        struct sockaddr_in server_addr;
+		socklen_t len = sizeof(server_addr);
+        int sock=establish_connection(server_addr,node2);
+        char keyval[100];
+		strcpy(keyval,("put:"+to_string(keyHash)+":"+value).c_str());
+		sendto(sock,keyval, strlen(keyval), 0, (struct sockaddr*)&server_addr, len);
         close(sock);
-
-        cout << "key entered successfully\n";
-    }
+        cout << "Key value pair entered"<<endl;
+	}
+}
+void get(string key)
+{
+	if (key == "")
+	{
+   		 cout << "Invalid key"<<endl;
+    	return;
+	}
+	ll keyHash = getHashId(key);
+	cout << "Key is " << key << " and hash : " << keyHash << endl;
+    nodeInfo node2 = find_successor(keyHash);
+    struct sockaddr_in server_addr;
+	socklen_t len = sizeof(server_addr);
+    int sock=establish_connection(server_addr,node2);
+    char keyval[100];
+	strcpy(keyval,("get:"+to_string(keyHash)).c_str());
+	sendto(sock,keyval, strlen(keyval), 0, (struct sockaddr*)&server_addr, len);
+	char recval[BUF_MAX+1];
+	int recvdbytes = recvfrom(sock, recval, 1024, 0, (struct sockaddr *) &server_addr, &len);
+	recval[recvdbytes]='\0';
+	string value(recval);
+	if(value.empty())
+		cout<<"No such key stored"<<endl;
+	else
+		cout<<"Value="<<value<<endl;
+	close(sock);
 }
 nodeInfo closest_preceding_node(ll nodeId)
 {
@@ -491,7 +529,29 @@ nodeInfo closest_preceding_node(ll nodeId)
 	else
 		return fingerTable[gi];
 }
-
+void leave()
+{
+	if(successor.id==currentNode.id)
+	{
+		close(sockid);
+		exit(0);
+	}
+	ask_change_predecessor(successor,predecessor);
+	ask_change_successor(predecessor,successor);
+	for(auto i: keyStore)
+	{
+		struct sockaddr_in server_addr;
+		socklen_t len = sizeof(server_addr);
+	    int sock=establish_connection(server_addr,successor);
+	    char keyval[100];
+		strcpy(keyval,("put:"+to_string(i.first)+":"+i.second).c_str());
+		sendto(sock,keyval, strlen(keyval), 0, (struct sockaddr*)&server_addr, len);
+	    close(sock);
+	}
+	close(sockid);
+	cout<<"Node closed"<<endl;
+	inRing=false;
+}
 };
 void interface(Node node)
 	{
@@ -502,8 +562,9 @@ void interface(Node node)
 			cout<<"2.Join ring\n";
 			cout<<"3.Put\n";
 			cout<<"4.get \n";
-			cout<<"5.Display\n";
-			cout<<"6.Exit\n";
+			cout<<"5.Leave Node\n";
+			cout<<"6.Display\n";
+			cout<<"7.Exit\n";
 			cout<<"Enter choice:";
 			
 			cin>>ch;
@@ -519,22 +580,31 @@ void interface(Node node)
 				cin>>port;
 				node.joinRing(ip,port);
 			}
-			// else if(ch==3)
-			// 	node.setFingerTable();
-			// else if(ch==3)
-			// {   string key,value;
-			// 	cout<<"Enter Key: ";
-			//     cin>>key;
-			// 	cout << endl;
-			// 	cout<<"Enter Value: ";
-			// 	cin>>value;
-			// 	cout << endl;
-			// 	node.put(key,value);
-
-			// }
+			else if(ch==3)
+			{   
+				string key,value;
+				cout<<"Enter Key: ";
+			    cin>>key;
+				cout << endl;
+				cout<<"Enter Value: ";
+				cin>>value;
+				cout << endl;
+				node.put(key,value);
+			}
+			else if(ch==4)
+			{
+				string key;
+				cout<<"Enter key: ";
+				cin>>key;
+				node.get(key);
+			}
 			else if(ch==5)
-				node.display();
+			{
+					node.leave();
+			}
 			else if(ch==6)
+				node.display();
+			else if(ch==7)
 				break;
 		}
 	}
